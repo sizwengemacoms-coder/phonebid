@@ -258,7 +258,7 @@ export default function App() {
   // ── Filter ────────────────────────────────────────────────────────────────
   const filtered = listings.filter(p => {
     const matchSearch = search === "" || `${p.brand} ${p.model}`.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === "all" || (filter === "active" && new Date(p.end_time) > Date.now()) || (filter === "ending" && (new Date(p.end_time) - Date.now()) < 3600e3 && new Date(p.end_time) > Date.now()) || (filter === "watched" && watchlist.includes(p.id));
+    const endMs = new Date(p.end_time).getTime(); const matchFilter = filter === "all" || (filter === "active" && endMs > Date.now()) || (filter === "ending" && (endMs - Date.now()) < 3600e3 && endMs > Date.now()) || (filter === "watched" && watchlist.includes(p.id));
     return matchSearch && matchFilter;
   });
 
