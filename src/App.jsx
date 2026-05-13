@@ -81,4 +81,86 @@ function Toast({ msg, type }) {
 
 function ConfirmModal({ msg, onConfirm, onCancel }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500, backdropFilter: "blur(
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500, backdropFilter: "blur(4px)" }}>
+      <div style={{ ...card, maxWidth: 380, width: "90%", textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 15, color: C.black, marginBottom: 28, lineHeight: 1.5 }}>{msg}</div>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <button onClick={onCancel} style={btnSecondary}>Cancel</button>
+          <button onClick={onConfirm} style={btnPrimary}>Confirm bid</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [listings, setListings] = useState([]);
+  const [bids, setBids] = useState({});
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [page, setPage] = useState("home");
+  const [selectedId, setSelectedId] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({ email: "", password: "", name: "", username: "" });
+  const [authErr, setAuthErr] = useState("");
+  const [bidInput, setBidInput] = useState("");
+  const [confirm, setConfirm] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [watchlist, setWatchlist] = useState([]);
+  const [toast, setToast] = useState({ msg: "", type: "" });
+  const [adminForm, setAdminForm] = useState({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrl: "" });
+  const [loading, setLoading] = useState(true);
+  const [bidLoading, setBidLoading] = useState(false);
+
+  const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem("pb_session");
+        if (raw) { const sess = JSON.parse(raw); setSession(sess); await loadProfile(sess.user.id); }
+        const wl = localStorage.getItem("pb_watchlist");
+        if (wl) setWatchlist(JSON.parse(wl));
+        await loadListings();
+      } catch(e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  async function loadListings() {
+    try {
+      let data = await sb("listings?order=created_at.desc&select=*");
+      if (!data || data.length === 0) {
+        await sb("listings", { method: "POST", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(SEED) });
+        data = await sb("listings?order=created_at.desc&select=*");
+      }
+      setListings(data || []);
+    } catch(e) { showToast("Could not load listings", "error"); }
+  }
+
+  async function loadBids(id) {
+    try { const data = await sb("bids?listing_id=eq." + id + "&order=created_at.desc&select=*"); setBids(p => ({ ...p, [id]: data || [] })); } catch(e) {}
+  }
+
+  async function loadProfile(uid) {
+    try { const d = await sb("profiles?id=eq." + uid + "&select=*"); if (d && d[0]) setProfile(d[0]); } catch(e) {}
+  }
+
+  async function login() {
+    if (!authForm.email || !authForm.password) { setAuthErr("Enter your email and password."); return; }
+    try {
+      const data = await sbAuth("token?grant_type=password", { email: authForm.email, password: authForm.password });
+      localStorage.setItem("pb_session", JSON.stringify(data));
+      setSession(data); await loadProfile(data.user.id);
+      setAuthErr(""); setPage("home"); showToast("Welcome back.");
+    } catch(e) { setAuthErr(e.message); }
+  }
+
+  async function register() {
+    if (!authForm.name || !authForm.email || !authForm.password || !authForm.username) { setAuthErr("All fields are required."); return; }
+    if (authForm.password.length < 6) { setAuthErr("Password must be at least 6 characters."); return; }
+    try {
+      const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
+      const isAdmin = authForm.email === "admin@phonebid.co.za";
+      await sb("profiles", { method: "POST", headers: { ...HEADERS, "Authorization": "Bearer " + data.access_token, "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin }) });
