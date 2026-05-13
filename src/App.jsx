@@ -135,32 +135,4 @@ export default function App() {
         await sb("listings", { method: "POST", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(SEED) });
         data = await sb("listings?order=created_at.desc&select=*");
       }
-      setListings(data || []);
-    } catch(e) { showToast("Could not load listings", "error"); }
-  }
-
-  async function loadBids(id) {
-    try { const data = await sb("bids?listing_id=eq." + id + "&order=created_at.desc&select=*"); setBids(p => ({ ...p, [id]: data || [] })); } catch(e) {}
-  }
-
-  async function loadProfile(uid) {
-    try { const d = await sb("profiles?id=eq." + uid + "&select=*"); if (d && d[0]) setProfile(d[0]); } catch(e) {}
-  }
-
-  async function login() {
-    if (!authForm.email || !authForm.password) { setAuthErr("Enter your email and password."); return; }
-    try {
-      const data = await sbAuth("token?grant_type=password", { email: authForm.email, password: authForm.password });
-      localStorage.setItem("pb_session", JSON.stringify(data));
-      setSession(data); await loadProfile(data.user.id);
-      setAuthErr(""); setPage("home"); showToast("Welcome back.");
-    } catch(e) { setAuthErr(e.message); }
-  }
-
-  async function register() {
-    if (!authForm.name || !authForm.email || !authForm.password || !authForm.username) { setAuthErr("All fields are required."); return; }
-    if (authForm.password.length < 6) { setAuthErr("Password must be at least 6 characters."); return; }
-    try {
-      const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
-      const isAdmin = authForm.email === "admin@phonebid.co.za";
-      await sb("profiles", { method: "POST", headers: { ...HEADERS, "Authorization": "Bearer " + data.access_token, "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin }) });
+      set
