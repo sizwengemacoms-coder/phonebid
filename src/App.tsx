@@ -56,9 +56,9 @@ function Avatar({ name, size = 34 }) {
   return <div style={{ width: size, height: size, borderRadius: "50%", background: C.blueLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.36, fontWeight: 700, color: C.blue, flexShrink: 0 }}>{init}</div>;
 }
 
-function Countdown({ endTime }) {
-  const [left, setLeft] = useState(new Date(endTime) - Date.now());
-  useEffect(() => { const t = setInterval(() => setLeft(new Date(endTime) - Date.now()), 1000); return () => clearInterval(t); }, [endTime]);
+function Countdown({ endTime }: { endTime: string }) {
+  const [left, setLeft] = useState(new Date(endTime).getTime() - Date.now());
+  useEffect(() => { const t = setInterval(() => setLeft(new Date(endTime).getTime() - Date.now()), 1000); return () => clearInterval(t); }, [endTime]);
   const urgent = left < 3600e3 && left > 0, ended = left <= 0;
   return <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: ended ? C.border : urgent ? C.redLight : C.greenLight, color: ended ? C.textMuted : urgent ? C.red : C.green }}>{ended ? "⏹ Ended" : `⏱ ${formatTime(left)}`}</span>;
 }
