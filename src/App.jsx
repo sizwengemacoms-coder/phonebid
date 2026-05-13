@@ -234,7 +234,7 @@ export default function App() {
 
       {/* NAV */}
       <nav style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(20px)", borderBottom: "1px solid " + C.gray2, padding: "0 40px", display: "flex", alignItems: "center", height: 52, position: "sticky", top: 0, zIndex: 200 }}>
-        <span onClick={() => setPage("home")} style={{ fontWeight: 700, fontSize: 18, cursor: "pointer", color: C.black, letterSpacing: "-0.03em", marginRight: 32 }}>PhoneBid</span>
+        <span onClick={() => setPage("home")} style={{ fontWeight: 700, fontSize: 18, cursor: "pointer", color: C.black, letterSpacing: "-0.03em", marginRight: 32 }}>Supreme Gadgets</span>
         <div style={{ display: "flex", gap: 4, flex: 1 }}>
           <button onClick={() => setPage("home")} style={{ ...btnGhost, color: page === "home" ? C.black : C.gray3, fontWeight: page === "home" ? 500 : 400 }}>Auctions</button>
           {profile && profile.is_admin && <button onClick={() => setPage("admin")} style={{ ...btnGhost, color: page === "admin" ? C.black : C.gray3, fontWeight: page === "admin" ? 500 : 400 }}>Admin</button>}
@@ -386,7 +386,7 @@ export default function App() {
             <div style={{ ...card, padding: 40 }}>
               <div style={{ textAlign: "center", marginBottom: 32 }}>
                 <div style={{ fontSize: 36, marginBottom: 8 }}>📱</div>
-                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em", margin: "0 0 8px" }}>PhoneBid</h2>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Supreme Gadgets</h2>
                 <p style={{ fontSize: 15, color: C.gray3, margin: 0 }}>{authMode === "login" ? "Sign in to your account" : "Create your account"}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -492,13 +492,3 @@ export default function App() {
             </div>
           </div>
         )}
-      </main>
-
-      <footer style={{ borderTop: "1px solid " + C.gray2, marginTop: 80, padding: "40px 24px", textAlign: "center" }}>
-        <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.02em", marginBottom: 8 }}>PhoneBid</div>
-        <div style={{ fontSize: 13, color: C.gray3 }}>South Africa's pre-owned phone auction platform · All prices in ZAR</div>
-        <div style={{ fontSize: 12, color: C.gray3, marginTop: 8 }}>© 2025 PhoneBid. All rights reserved.</div>
-      </footer>
-    </div>
-  );
-}
