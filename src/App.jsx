@@ -502,19 +502,3 @@ export default function App() {
     </div>
   );
 }
-{activeBids.map(function(b, i) {
-  return (
-    <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0" }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Use the Avatar component we built earlier */}
-        <Avatar name={b.user_name} size={28} />
-        <span style={{ fontWeight: i === 0 ? 600 : 400 }}>
-          {b.user_name} {/* <--- This ensures the Name shows, not the ID or Email */}
-        </span>
-      </span>
-      <span style={{ fontWeight: i === 0 ? 700 : 400 }}>
-        {formatZAR(b.amount)}
-      </span>
-    </div>
-  );
-})}
