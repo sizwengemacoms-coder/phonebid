@@ -30,8 +30,8 @@ const SEED = [
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const formatZAR = n => "R " + Number(n).toLocaleString("en-ZA");
-const formatTime = ms => {
+const formatZAR = (n: number) => "R " + Number(n).toLocaleString("en-ZA");
+const formatTime = (ms: number) => {
   if (ms <= 0) return "Ended";
   const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   if (h > 0) return `${h}h ${m}m`;
