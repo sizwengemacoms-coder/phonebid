@@ -41,9 +41,8 @@ const C = {
   black: "#1d1d1f", white: "#ffffff", gray1: "#f5f5f7", gray2: "#e8e8ed",
   gray3: "#6e6e73", gray4: "#424245", blue: "#0071e3", green: "#1d8348",
   greenLight: "#eafaf1", red: "#c0392b", redLight: "#fdedec", amber: "#d4830a", amberLight: "#fef9e7",
+  goldBg: "#fffbea", goldBorder: "#f0c040", goldText: "#8a6a00",
 };
-
-const font = "'-apple-system','BlinkMacSystemFont','Helvetica Neue',sans-serif";
 
 const inp = { border: "1px solid " + C.gray2, borderRadius: 12, padding: "11px 16px", fontSize: 15, width: "100%", background: C.white, color: C.black, boxSizing: "border-box", outline: "none" };
 const btnPrimary = { background: C.blue, color: C.white, border: "none", borderRadius: 980, padding: "12px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
@@ -89,6 +88,39 @@ function ConfirmModal({ msg, onConfirm, onCancel }) {
           <button onClick={onConfirm} style={btnPrimary}>Confirm bid</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Winner banner shown when auction has ended
+function WinnerBanner({ bids }) {
+  const winner = bids && bids.length > 0 ? bids[0] : null;
+  return (
+    <div style={{
+      background: C.goldBg,
+      border: "1.5px solid " + C.goldBorder,
+      borderRadius: 14,
+      padding: "22px 24px",
+      textAlign: "center",
+    }}>
+      <div style={{ fontSize: 28, marginBottom: 6 }}>🏆</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldText, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+        Auction Ended
+      </div>
+      {winner ? (
+        <>
+          <div style={{ fontSize: 15, color: C.black, marginBottom: 6 }}>
+            Won by <strong>{winner.user_name || "Anonymous"}</strong>
+          </div>
+          <div style={{ fontWeight: 800, fontSize: 32, color: C.goldText, letterSpacing: "-0.03em" }}>
+            {formatZAR(winner.amount)}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 15, color: C.gray3 }}>
+          No bids were placed on this listing.
+        </div>
+      )}
     </div>
   );
 }
@@ -139,8 +171,12 @@ export default function App() {
     } catch(e) { showToast("Could not load listings", "error"); }
   }
 
+  // FIX: sort bids by amount desc so index 0 is always the highest bidder (winner)
   async function loadBids(id) {
-    try { const data = await sb("bids?listing_id=eq." + id + "&order=created_at.desc&select=*"); setBids(p => ({ ...p, [id]: data || [] })); } catch(e) {}
+    try {
+      const data = await sb("bids?listing_id=eq." + id + "&order=amount.desc&select=*");
+      setBids(p => ({ ...p, [id]: data || [] }));
+    } catch(e) {}
   }
 
   async function loadProfile(uid) {
@@ -193,6 +229,7 @@ export default function App() {
     const phone = confirm.phone, amount = confirm.amount;
     setConfirm(null); setBidLoading(true);
     try {
+      // FIX: always save user_id and user_name so winner is identifiable
       await sb("bids", { method: "POST", headers: { ...HEADERS, "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: phone.id, user_id: session.user.id, user_name: (profile && profile.name) || session.user.email, amount }) });
       await sb("listings?id=eq." + phone.id, { method: "PATCH", headers: { ...HEADERS, "Prefer": "return=minimal" }, body: JSON.stringify({ current_bid: amount }) });
       setListings(prev => prev.map(p => p.id === phone.id ? { ...p, current_bid: amount } : p));
@@ -262,7 +299,7 @@ export default function App() {
             <div style={{ textAlign: "center", marginBottom: 56 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: C.blue, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
               <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on pre-owned phones.</h1>
-              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices. </p>
+              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices.</p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 {[["all","All listings"],["active","Active"],["ending","Ending soon"],["watched","Watchlist (" + watchlist.length + ")"]].map(function(item) {
                   return <button key={item[0]} onClick={() => setFilter(item[0])} style={{ ...(filter === item[0] ? btnPrimary : btnSecondary), padding: "9px 20px", fontSize: 14 }}>{item[1]}</button>;
@@ -288,6 +325,12 @@ export default function App() {
                       <button onClick={e => { e.stopPropagation(); toggleWatch(p.id); }} style={{ position: "absolute", top: 12, right: 12, background: C.white, border: "1px solid " + C.gray2, borderRadius: "50%", width: 34, height: 34, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {watchlist.includes(p.id) ? "♥" : "♡"}
                       </button>
+                      {/* FIX: show ended ribbon on card */}
+                      {ended && (
+                        <div style={{ position: "absolute", top: 12, left: 12, background: C.goldBg, border: "1px solid " + C.goldBorder, color: C.goldText, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 980, letterSpacing: "0.04em" }}>
+                          🏆 Ended
+                        </div>
+                      )}
                     </div>
                     <div style={{ padding: "16px 20px 20px" }}>
                       <div style={{ fontSize: 12, color: C.gray3, marginBottom: 2, fontWeight: 500 }}>{p.brand}</div>
@@ -298,8 +341,10 @@ export default function App() {
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
                         <div>
-                          <div style={{ fontSize: 11, color: C.gray3, marginBottom: 2, letterSpacing: "0.02em", textTransform: "uppercase" }}>Current bid</div>
-                          <div style={{ fontWeight: 700, fontSize: 22, color: ended ? C.gray3 : C.black, letterSpacing: "-0.03em" }}>{formatZAR(p.current_bid)}</div>
+                          <div style={{ fontSize: 11, color: C.gray3, marginBottom: 2, letterSpacing: "0.02em", textTransform: "uppercase" }}>
+                            {ended ? "Winning bid" : "Current bid"}
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 22, color: ended ? C.goldText : C.black, letterSpacing: "-0.03em" }}>{formatZAR(p.current_bid)}</div>
                         </div>
                         <Countdown endTime={p.end_time} />
                       </div>
@@ -341,11 +386,17 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div style={{ ...card, padding: 32 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: C.gray3, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 500 }}>Current bid</span>
+                    <span style={{ fontSize: 12, color: C.gray3, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 500 }}>
+                      {endMs(activePhone) <= Date.now() ? "Winning bid" : "Current bid"}
+                    </span>
                     <Countdown endTime={activePhone.end_time} />
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: "-0.04em", color: endMs(activePhone) <= Date.now() ? C.gray3 : C.black, marginBottom: 28 }}>{formatZAR(activePhone.current_bid)}</div>
-                  {endMs(activePhone) > Date.now() && (
+                  <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: "-0.04em", color: endMs(activePhone) <= Date.now() ? C.goldText : C.black, marginBottom: 28 }}>{formatZAR(activePhone.current_bid)}</div>
+
+                  {/* FIX: show winner banner when auction ended, bid form when active */}
+                  {endMs(activePhone) <= Date.now() ? (
+                    <WinnerBanner bids={activeBids} />
+                  ) : (
                     session ? (
                       <div>
                         <label style={lbl}>Your bid (min {formatZAR(activePhone.current_bid + 50)})</label>
@@ -357,20 +408,27 @@ export default function App() {
                       <button onClick={() => { setPage("auth"); setAuthMode("login"); }} style={{ ...btnPrimary, width: "100%", padding: 16, fontSize: 16 }}>Sign in to bid</button>
                     )
                   )}
-                  {endMs(activePhone) <= Date.now() && <div style={{ fontSize: 15, color: C.gray3, textAlign: "center" }}>This auction has ended.</div>}
                 </div>
+
                 <div style={card}>
                   <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16, letterSpacing: "-0.02em" }}>Bid history ({activeBids.length})</div>
                   {activeBids.length === 0 ? <div style={{ fontSize: 14, color: C.gray3 }}>No bids yet — be the first.</div>
                     : activeBids.slice(0, 8).map(function(b, i) {
+                      const isWinner = endMs(activePhone) <= Date.now() && i === 0;
                       return (
-                        <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid " + C.gray1, fontSize: 14 }}>
+                        <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid " + C.gray1, fontSize: 14, background: isWinner ? C.goldBg : "transparent", marginLeft: isWinner ? -24 : 0, marginRight: isWinner ? -24 : 0, paddingLeft: isWinner ? 24 : 0, paddingRight: isWinner ? 24 : 0 }}>
                           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <Avatar name={b.user_name} size={28} />
-                            <span style={{ fontWeight: i === 0 ? 600 : 400 }}>{b.user_name}</span>
-                            {i === 0 && <span style={{ fontSize: 10, background: C.greenLight, color: C.green, padding: "2px 8px", borderRadius: 980, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Leading</span>}
+                            <span style={{ fontWeight: i === 0 ? 600 : 400 }}>{b.user_name || "Anonymous"}</span>
+                            {/* FIX: show "Winner" badge instead of "Leading" when auction ended */}
+                            {i === 0 && endMs(activePhone) > Date.now() && (
+                              <span style={{ fontSize: 10, background: C.greenLight, color: C.green, padding: "2px 8px", borderRadius: 980, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Leading</span>
+                            )}
+                            {isWinner && (
+                              <span style={{ fontSize: 10, background: C.goldBg, color: C.goldText, border: "1px solid " + C.goldBorder, padding: "2px 8px", borderRadius: 980, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>🏆 Winner</span>
+                            )}
                           </span>
-                          <span style={{ fontWeight: i === 0 ? 700 : 400, letterSpacing: "-0.02em" }}>{formatZAR(b.amount)}</span>
+                          <span style={{ fontWeight: i === 0 ? 700 : 400, letterSpacing: "-0.02em", color: isWinner ? C.goldText : C.black }}>{formatZAR(b.amount)}</span>
                         </div>
                       );
                     })}
@@ -475,6 +533,7 @@ export default function App() {
             <div style={card}>
               <h3 style={{ fontWeight: 600, fontSize: 17, marginBottom: 20, letterSpacing: "-0.02em" }}>Manage listings ({listings.length})</h3>
               {listings.map(function(p) {
+                const ended = endMs(p) <= Date.now();
                 return (
                   <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid " + C.gray1, gap: 12 }}>
                     <div style={{ flex: 1 }}>
@@ -482,7 +541,7 @@ export default function App() {
                       <div style={{ fontSize: 12, color: C.gray3, marginTop: 2 }}>{p.storage} · <CondBadge cond={p.condition} /></div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-                      <span style={{ fontWeight: 700, letterSpacing: "-0.02em" }}>{formatZAR(p.current_bid)}</span>
+                      <span style={{ fontWeight: 700, letterSpacing: "-0.02em", color: ended ? C.goldText : C.black }}>{formatZAR(p.current_bid)}</span>
                       <Countdown endTime={p.end_time} />
                       <button onClick={() => removeListing(p.id)} style={btnDanger}>Remove</button>
                     </div>
