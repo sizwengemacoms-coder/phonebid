@@ -141,10 +141,11 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [watchlist, setWatchlist] = useState([]);
   const [toast, setToast] = useState({ msg: "", type: "" });
-  const [adminForm, setAdminForm] = useState({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrl: "" });
+  const [adminForm, setAdminForm] = useState({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrls: "" });
   const [loading, setLoading] = useState(true);
   const [bidLoading, setBidLoading] = useState(false);
   const [winners, setWinners] = useState([]);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
@@ -270,15 +271,18 @@ export default function App() {
   }
 
   async function addListing() {
-    const { brand, model, storage, condition, color, startPrice, hours, imageUrl } = adminForm;
+    const { brand, model, storage, condition, color, startPrice, hours, imageUrls } = adminForm;
     if (!brand || !model || !startPrice || !hours) { showToast("Fill in all required fields", "error"); return; }
     const price = parseFloat(startPrice);
     const token = getToken();
     try {
+      // Split imageUrls by comma and trim whitespace
+      const urls = imageUrls ? imageUrls.split(",").map(url => url.trim()).filter(url => url) : [];
+      
       // Pass admin session token so RLS allows the insert
-      await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_url: imageUrl || "", start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) }, token);
+      await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_urls: urls, start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) }, token);
       await loadListings();
-      setAdminForm({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrl: "" });
+      setAdminForm({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrls: "" });
       showToast("Listing added.");
     } catch(e) { showToast("Failed: " + e.message, "error"); }
   }
@@ -359,10 +363,15 @@ export default function App() {
                     onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
                     onClick={() => { setSelectedId(p.id); setPage("detail"); setBidInput(""); loadBids(p.id); }}>
                     <div style={{ height: 180, background: C.gray1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, position: "relative" }}>
-                      {p.image_url ? <img src={p.image_url} style={{ height: 160, objectFit: "contain" }} alt="" /> : "📱"}
+                      {p.image_urls && p.image_urls.length > 0 ? <img src={p.image_urls[0]} style={{ height: 160, objectFit: "contain" }} alt="" /> : "📱"}
                       <button onClick={e => { e.stopPropagation(); toggleWatch(p.id); }} style={{ position: "absolute", top: 12, right: 12, background: C.white, border: "1px solid " + C.gray2, borderRadius: "50%", width: 34, height: 34, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {watchlist.includes(p.id) ? "♥" : "♡"}
                       </button>
+                      {p.image_urls && p.image_urls.length > 1 && (
+                        <div style={{ position: "absolute", bottom: 12, right: 12, background: C.black, color: C.white, fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 6, letterSpacing: "0.02em" }}>
+                          {p.image_urls.length} photos
+                        </div>
+                      )}
                       {ended && (
                         <div style={{ position: "absolute", top: 12, left: 12, background: C.goldBg, border: "1px solid " + C.goldBorder, color: C.goldText, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 980, letterSpacing: "0.04em" }}>
                           🏆 Ended
@@ -397,9 +406,59 @@ export default function App() {
             <button onClick={() => setPage("home")} style={{ ...btnGhost, padding: 0, marginBottom: 32, fontSize: 14, color: C.gray3 }}>← All auctions</button>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
               <div>
-                <div style={{ background: C.gray1, borderRadius: 18, height: 320, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 120, marginBottom: 24 }}>
-                  {activePhone.image_url ? <img src={activePhone.image_url} style={{ height: 280, objectFit: "contain" }} alt="" /> : "📱"}
+                {/* Large image gallery */}
+                <div style={{ background: C.gray1, borderRadius: 18, height: 500, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 120, marginBottom: 20, position: "relative", overflow: "hidden" }}>
+                  {activePhone.image_urls && activePhone.image_urls.length > 0 ? (
+                    <img src={activePhone.image_urls[selectedImageIndex]} style={{ height: "100%", width: "100%", objectFit: "contain" }} alt={`${activePhone.brand} ${activePhone.model} image ${selectedImageIndex + 1}`} />
+                  ) : (
+                    "📱"
+                  )}
+                  
+                  {/* Image navigation arrows */}
+                  {activePhone.image_urls && activePhone.image_urls.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setSelectedImageIndex((i) => (i - 1 + activePhone.image_urls.length) % activePhone.image_urls.length)}
+                        style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: C.white, border: "none", width: 44, height: 44, borderRadius: "50%", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        ‹
+                      </button>
+                      <button
+                        onClick={() => setSelectedImageIndex((i) => (i + 1) % activePhone.image_urls.length)}
+                        style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: C.white, border: "none", width: 44, height: 44, borderRadius: "50%", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        ›
+                      </button>
+                      
+                      {/* Image indicators */}
+                      <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8 }}>
+                        {activePhone.image_urls.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedImageIndex(idx)}
+                            style={{ width: idx === selectedImageIndex ? 24 : 8, height: 8, borderRadius: 4, background: idx === selectedImageIndex ? C.white : "rgba(255,255,255,0.6)", border: "none", cursor: "pointer", transition: "all 0.2s" }}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
+
+                {/* Thumbnail strip */}
+                {activePhone.image_urls && activePhone.image_urls.length > 1 && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto", paddingBottom: 8 }}>
+                    {activePhone.image_urls.map((url, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedImageIndex(idx)}
+                        style={{ minWidth: 80, height: 80, borderRadius: 12, border: selectedImageIndex === idx ? "2px solid " + C.blue : "1px solid " + C.gray2, overflow: "hidden", cursor: "pointer", background: "transparent", padding: 0 }}
+                      >
+                        <img src={url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt={`Thumbnail ${idx + 1}`} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div style={card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
                     <div>
@@ -547,11 +606,11 @@ export default function App() {
             <div style={{ ...card, marginBottom: 24 }}>
               <h3 style={{ fontWeight: 600, fontSize: 17, marginBottom: 20, letterSpacing: "-0.02em" }}>Add new listing</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
-                {[["brand","Brand *"],["model","Model *"],["storage","Storage"],["color","Colour"],["startPrice","Starting price (R) *"],["hours","Duration (hours) *"],["imageUrl","Image URL"]].map(function(item) {
+                {[["brand","Brand *"],["model","Model *"],["storage","Storage"],["color","Colour"],["startPrice","Starting price (R) *"],["hours","Duration (hours) *"],["imageUrls","Image URLs (comma-separated)"]].map(function(item) {
                   return (
                     <div key={item[0]}>
                       <label style={lbl}>{item[1]}</label>
-                      <input value={adminForm[item[0]]} onChange={e => setAdminForm(f => ({ ...f, [item[0]]: e.target.value }))} style={inp} />
+                      <input value={adminForm[item[0]]} onChange={e => setAdminForm(f => ({ ...f, [item[0]]: e.target.value }))} style={inp} placeholder={item[0] === "imageUrls" ? "https://example.com/img1.jpg, https://example.com/img2.jpg" : ""} />
                     </div>
                   );
                 })}
