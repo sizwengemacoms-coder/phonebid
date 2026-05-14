@@ -2,17 +2,32 @@ import { useState, useEffect } from "react";
 
 const SUPA_URL = "https://fxwnpebzfcfvqvnxkayn.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d25wZWJ6ZmNmdnF2bnhrYXluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MzMxMDUsImV4cCI6MjA5NDIwOTEwNX0._94i3GtL_5IPFdm8aVs1RRIhwXEiPd-cudf0Fomh3fs";
-const HEADERS = { "Content-Type": "application/json", "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY };
 
-async function sb(path, opts) {
-  const res = await fetch(SUPA_URL + "/rest/v1/" + path, { headers: HEADERS, ...opts });
+// FIX: always pass the logged-in user's JWT for write operations so RLS can identify them
+function makeHeaders(token, extra) {
+  return {
+    "Content-Type": "application/json",
+    "apikey": SUPA_KEY,
+    "Authorization": "Bearer " + (token || SUPA_KEY),
+    ...extra,
+  };
+}
+
+async function sb(path, opts, token) {
+  const { extraHeaders, ...restOpts } = opts || {};
+  const headers = makeHeaders(token, extraHeaders || {});
+  const res = await fetch(SUPA_URL + "/rest/v1/" + path, { ...restOpts, headers });
   if (!res.ok) { const e = await res.json(); throw new Error(e.message || res.statusText); }
   const txt = await res.text();
   return txt ? JSON.parse(txt) : null;
 }
 
 async function sbAuth(path, body) {
-  const res = await fetch(SUPA_URL + "/auth/v1/" + path, { method: "POST", headers: { "Content-Type": "application/json", "apikey": SUPA_KEY }, body: JSON.stringify(body) });
+  const res = await fetch(SUPA_URL + "/auth/v1/" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": SUPA_KEY },
+    body: JSON.stringify(body),
+  });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error_description || data.msg || "Auth error");
   return data;
@@ -92,34 +107,19 @@ function ConfirmModal({ msg, onConfirm, onCancel }) {
   );
 }
 
-// Winner banner shown when auction has ended
 function WinnerBanner({ bids }) {
   const winner = bids && bids.length > 0 ? bids[0] : null;
   return (
-    <div style={{
-      background: C.goldBg,
-      border: "1.5px solid " + C.goldBorder,
-      borderRadius: 14,
-      padding: "22px 24px",
-      textAlign: "center",
-    }}>
+    <div style={{ background: C.goldBg, border: "1.5px solid " + C.goldBorder, borderRadius: 14, padding: "22px 24px", textAlign: "center" }}>
       <div style={{ fontSize: 28, marginBottom: 6 }}>🏆</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldText, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-        Auction Ended
-      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldText, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Auction Ended</div>
       {winner ? (
         <>
-          <div style={{ fontSize: 15, color: C.black, marginBottom: 6 }}>
-            Won by <strong>{winner.user_name || "Anonymous"}</strong>
-          </div>
-          <div style={{ fontWeight: 800, fontSize: 32, color: C.goldText, letterSpacing: "-0.03em" }}>
-            {formatZAR(winner.amount)}
-          </div>
+          <div style={{ fontSize: 15, color: C.black, marginBottom: 6 }}>Won by <strong>{winner.user_name || "Anonymous"}</strong></div>
+          <div style={{ fontWeight: 800, fontSize: 32, color: C.goldText, letterSpacing: "-0.03em" }}>{formatZAR(winner.amount)}</div>
         </>
       ) : (
-        <div style={{ fontSize: 15, color: C.gray3 }}>
-          No bids were placed on this listing.
-        </div>
+        <div style={{ fontSize: 15, color: C.gray3 }}>No bids were placed on this listing.</div>
       )}
     </div>
   );
@@ -147,6 +147,13 @@ export default function App() {
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
+  // Helper: get the current user's JWT from state or localStorage
+  function getToken() {
+    if (session && session.access_token) return session.access_token;
+    try { const raw = localStorage.getItem("pb_session"); if (raw) return JSON.parse(raw).access_token; } catch(e) {}
+    return null;
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -164,14 +171,15 @@ export default function App() {
     try {
       let data = await sb("listings?order=created_at.desc&select=*");
       if (!data || data.length === 0) {
-        await sb("listings", { method: "POST", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(SEED) });
+        const token = getToken();
+        await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=representation" }, body: JSON.stringify(SEED) }, token);
         data = await sb("listings?order=created_at.desc&select=*");
       }
       setListings(data || []);
     } catch(e) { showToast("Could not load listings", "error"); }
   }
 
-  // FIX: sort bids by amount desc so index 0 is always the highest bidder (winner)
+  // Sort by amount desc so bids[0] is always the highest bidder (winner)
   async function loadBids(id) {
     try {
       const data = await sb("bids?listing_id=eq." + id + "&order=amount.desc&select=*");
@@ -199,7 +207,8 @@ export default function App() {
     try {
       const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
       const isAdmin = authForm.email === "admin@phonebid.co.za";
-      await sb("profiles", { method: "POST", headers: { ...HEADERS, "Authorization": "Bearer " + data.access_token, "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin }) });
+      // Use the new user's own token to insert their profile (satisfies RLS insert policy)
+      await sb("profiles", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin }) }, data.access_token);
       localStorage.setItem("pb_session", JSON.stringify(data));
       setSession(data); setProfile({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin });
       setAuthErr(""); setPage("home"); showToast("Welcome, " + authForm.name.split(" ")[0] + ".");
@@ -228,10 +237,20 @@ export default function App() {
   async function confirmBid() {
     const phone = confirm.phone, amount = confirm.amount;
     setConfirm(null); setBidLoading(true);
+
+    // Block anonymous bids — require a real profile name
+    const userName = profile && profile.name;
+    if (!userName) {
+      showToast("Profile not loaded. Please sign out and sign back in.", "error");
+      setBidLoading(false);
+      return;
+    }
+
+    const token = getToken();
     try {
-      // FIX: always save user_id and user_name so winner is identifiable
-      await sb("bids", { method: "POST", headers: { ...HEADERS, "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: phone.id, user_id: session.user.id, user_name: (profile && profile.name) || session.user.email, amount }) });
-      await sb("listings?id=eq." + phone.id, { method: "PATCH", headers: { ...HEADERS, "Prefer": "return=minimal" }, body: JSON.stringify({ current_bid: amount }) });
+      // Pass session token so RLS can verify user_id matches the logged-in user
+      await sb("bids", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: phone.id, user_id: session.user.id, user_name: userName, amount }) }, token);
+      await sb("listings?id=eq." + phone.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ current_bid: amount }) }, token);
       setListings(prev => prev.map(p => p.id === phone.id ? { ...p, current_bid: amount } : p));
       await loadBids(phone.id); setBidInput(""); showToast("Bid of " + formatZAR(amount) + " placed.");
     } catch(e) { showToast("Bid failed: " + e.message, "error"); }
@@ -242,8 +261,10 @@ export default function App() {
     const { brand, model, storage, condition, color, startPrice, hours, imageUrl } = adminForm;
     if (!brand || !model || !startPrice || !hours) { showToast("Fill in all required fields", "error"); return; }
     const price = parseFloat(startPrice);
+    const token = getToken();
     try {
-      await sb("listings", { method: "POST", headers: { ...HEADERS, "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_url: imageUrl || "", start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) });
+      // Pass admin session token so RLS allows the insert
+      await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_url: imageUrl || "", start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) }, token);
       await loadListings();
       setAdminForm({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrl: "" });
       showToast("Listing added.");
@@ -251,8 +272,13 @@ export default function App() {
   }
 
   async function removeListing(id) {
-    try { await sb("listings?id=eq." + id, { method: "DELETE", headers: HEADERS }); setListings(p => p.filter(x => x.id !== id)); showToast("Listing removed.", "warn"); }
-    catch(e) { showToast("Failed: " + e.message, "error"); }
+    const token = getToken();
+    try {
+      // Pass admin session token so RLS allows the delete
+      await sb("listings?id=eq." + id, { method: "DELETE" }, token);
+      setListings(p => p.filter(x => x.id !== id));
+      showToast("Listing removed.", "warn");
+    } catch(e) { showToast("Failed: " + e.message, "error"); }
   }
 
   const filtered = listings.filter(p => {
@@ -325,7 +351,6 @@ export default function App() {
                       <button onClick={e => { e.stopPropagation(); toggleWatch(p.id); }} style={{ position: "absolute", top: 12, right: 12, background: C.white, border: "1px solid " + C.gray2, borderRadius: "50%", width: 34, height: 34, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {watchlist.includes(p.id) ? "♥" : "♡"}
                       </button>
-                      {/* FIX: show ended ribbon on card */}
                       {ended && (
                         <div style={{ position: "absolute", top: 12, left: 12, background: C.goldBg, border: "1px solid " + C.goldBorder, color: C.goldText, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 980, letterSpacing: "0.04em" }}>
                           🏆 Ended
@@ -341,9 +366,7 @@ export default function App() {
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
                         <div>
-                          <div style={{ fontSize: 11, color: C.gray3, marginBottom: 2, letterSpacing: "0.02em", textTransform: "uppercase" }}>
-                            {ended ? "Winning bid" : "Current bid"}
-                          </div>
+                          <div style={{ fontSize: 11, color: C.gray3, marginBottom: 2, letterSpacing: "0.02em", textTransform: "uppercase" }}>{ended ? "Winning bid" : "Current bid"}</div>
                           <div style={{ fontWeight: 700, fontSize: 22, color: ended ? C.goldText : C.black, letterSpacing: "-0.03em" }}>{formatZAR(p.current_bid)}</div>
                         </div>
                         <Countdown endTime={p.end_time} />
@@ -386,14 +409,11 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <div style={{ ...card, padding: 32 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: C.gray3, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 500 }}>
-                      {endMs(activePhone) <= Date.now() ? "Winning bid" : "Current bid"}
-                    </span>
+                    <span style={{ fontSize: 12, color: C.gray3, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 500 }}>{endMs(activePhone) <= Date.now() ? "Winning bid" : "Current bid"}</span>
                     <Countdown endTime={activePhone.end_time} />
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: "-0.04em", color: endMs(activePhone) <= Date.now() ? C.goldText : C.black, marginBottom: 28 }}>{formatZAR(activePhone.current_bid)}</div>
 
-                  {/* FIX: show winner banner when auction ended, bid form when active */}
                   {endMs(activePhone) <= Date.now() ? (
                     <WinnerBanner bids={activeBids} />
                   ) : (
@@ -420,7 +440,6 @@ export default function App() {
                           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <Avatar name={b.user_name} size={28} />
                             <span style={{ fontWeight: i === 0 ? 600 : 400 }}>{b.user_name || "Anonymous"}</span>
-                            {/* FIX: show "Winner" badge instead of "Leading" when auction ended */}
                             {i === 0 && endMs(activePhone) > Date.now() && (
                               <span style={{ fontSize: 10, background: C.greenLight, color: C.green, padding: "2px 8px", borderRadius: 980, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Leading</span>
                             )}
