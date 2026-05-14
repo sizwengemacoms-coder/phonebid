@@ -133,7 +133,7 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [selectedId, setSelectedId] = useState(null);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ email: "", password: "", name: "", username: "" });
+  const [authForm, setAuthForm] = useState({ email: "", password: "", name: "", username: "", phone: "" });
   const [authErr, setAuthErr] = useState("");
   const [bidInput, setBidInput] = useState("");
   const [confirm, setConfirm] = useState(null);
@@ -219,10 +219,10 @@ export default function App() {
     try {
       const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
       const isAdmin = authForm.email === "admin@phonebid.co.za";
-      // Use the new user's own token to insert their profile (satisfies RLS insert policy)
-      await sb("profiles", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin }) }, data.access_token);
+      // Use the new user's own token to insert their own profile (satisfies RLS insert policy)
+      await sb("profiles", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin }) }, data.access_token);
       localStorage.setItem("pb_session", JSON.stringify(data));
-      setSession(data); setProfile({ id: data.user.id, name: authForm.name, username: authForm.username, is_admin: isAdmin });
+      setSession(data); setProfile({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin });
       setAuthErr(""); setPage("home"); showToast("Welcome, " + authForm.name.split(" ")[0] + ".");
     } catch(e) { setAuthErr(e.message); }
   }
@@ -482,7 +482,8 @@ export default function App() {
                 {authMode === "register" && (
                   <div>
                     <div style={{ marginBottom: 12 }}><label style={lbl}>Full name</label><input placeholder="Thabo Nkosi" value={authForm.name} onChange={e => setAuthForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
-                    <div><label style={lbl}>Username</label><input placeholder="thabo_za" value={authForm.username} onChange={e => setAuthForm(f => ({ ...f, username: e.target.value }))} style={inp} /></div>
+                    <div style={{ marginBottom: 12 }}><label style={lbl}>Username</label><input placeholder="thabo_za" value={authForm.username} onChange={e => setAuthForm(f => ({ ...f, username: e.target.value }))} style={inp} /></div>
+                    <div><label style={lbl}>Phone number</label><input placeholder="+27 81 234 5678" value={authForm.phone} onChange={e => setAuthForm(f => ({ ...f, phone: e.target.value }))} style={inp} /></div>
                   </div>
                 )}
                 <div><label style={lbl}>Email address</label><input type="email" value={authForm.email} onChange={e => setAuthForm(f => ({ ...f, email: e.target.value }))} style={inp} /></div>
@@ -510,6 +511,7 @@ export default function App() {
               <div>
                 <div style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.03em" }}>{profile && profile.name}</div>
                 <div style={{ fontSize: 14, color: C.gray3, marginTop: 4 }}>@{profile && profile.username} · {session.user.email}</div>
+                {profile && profile.phone_number && <div style={{ fontSize: 14, color: C.gray3, marginTop: 2 }}>📱 {profile.phone_number}</div>}
                 {profile && profile.is_admin && <span style={{ fontSize: 11, background: C.black, color: C.white, padding: "3px 10px", borderRadius: 980, fontWeight: 600, marginTop: 8, display: "inline-block", letterSpacing: "0.05em", textTransform: "uppercase" }}>Admin</span>}
               </div>
             </div>
@@ -577,6 +579,7 @@ export default function App() {
                         <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Phone</th>
                         <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winner Name</th>
                         <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Email</th>
+                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Phone</th>
                         <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winning Bid</th>
                         <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Date</th>
                       </tr>
@@ -593,6 +596,15 @@ export default function App() {
                             {w.email ? (
                               <a href={"mailto:" + w.email} style={{ color: C.blue, textDecoration: "none" }}>
                                 {w.email}
+                              </a>
+                            ) : (
+                              <span style={{ color: C.gray3 }}>N/A</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "12px 0", fontSize: 13 }}>
+                            {w.phone_number ? (
+                              <a href={"tel:" + w.phone_number} style={{ color: C.blue, textDecoration: "none", fontWeight: 500 }}>
+                                {w.phone_number}
                               </a>
                             ) : (
                               <span style={{ color: C.gray3 }}>N/A</span>
