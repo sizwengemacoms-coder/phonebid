@@ -397,7 +397,7 @@ export default function App() {
             <div style={{ textAlign: "center", marginBottom: 56 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: C.blue, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
               <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>New & Pre-owned Devices.</h1>
-              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices.</p>
+              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Authentic. Inspected.</p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 {[["all","All listings"],["active","Active"],["ending","Ending soon"],["watched","Watchlist (" + watchlist.length + ")"]].map(function(item) {
                   return <button key={item[0]} onClick={() => setFilter(item[0])} style={{ ...(filter === item[0] ? btnPrimary : btnSecondary), padding: "9px 20px", fontSize: 14 }}>{item[1]}</button>;
@@ -819,7 +819,7 @@ export default function App() {
       <footer style={{ borderTop: "1px solid " + C.gray2, marginTop: 80, padding: "40px 24px", textAlign: "center" }}>
         <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.02em", marginBottom: 8 }}>Supreme Gadgets</div>
         <div style={{ fontSize: 13, color: C.gray3 }}>South Africa's pre-owned Tech auction platform · All prices in ZAR</div>
-        <div style={{ fontSize: 12, color: C.gray3, marginTop: 8 }}>© 2025 Supreme Gadgets. All rights reserved.</div>
+        <div style={{ fontSize: 12, color: C.gray3, marginTop: 8 }}>© Supreme Gadgets. All rights reserved.</div>
       </footer>
     </div>
   );
