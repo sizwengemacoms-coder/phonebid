@@ -144,6 +144,7 @@ export default function App() {
   const [adminForm, setAdminForm] = useState({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrl: "" });
   const [loading, setLoading] = useState(true);
   const [bidLoading, setBidLoading] = useState(false);
+  const [winners, setWinners] = useState([]);
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
@@ -185,6 +186,17 @@ export default function App() {
       const data = await sb("bids?listing_id=eq." + id + "&order=amount.desc&select=*");
       setBids(p => ({ ...p, [id]: data || [] }));
     } catch(e) {}
+  }
+
+  // Load all auction winners from the auction_winners view
+  async function loadWinners() {
+    try {
+      const data = await sb("auction_winners?order=end_time.desc&select=*");
+      setWinners(data || []);
+    } catch(e) { 
+      console.error("Failed to load winners:", e);
+      showToast("Could not load winners list", "error");
+    }
   }
 
   async function loadProfile(uid) {
@@ -528,6 +540,7 @@ export default function App() {
         {/* ADMIN */}
         {page === "admin" && profile && profile.is_admin && (
           <div>
+            {(() => { if (page === "admin" && winners.length === 0) loadWinners(); return null; })()}
             <h2 style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.03em", marginBottom: 32 }}>Admin panel</h2>
             <div style={{ ...card, marginBottom: 24 }}>
               <h3 style={{ fontWeight: 600, fontSize: 17, marginBottom: 20, letterSpacing: "-0.02em" }}>Add new listing</h3>
@@ -548,6 +561,51 @@ export default function App() {
                 </div>
               </div>
               <button onClick={addListing} style={{ ...btnPrimary, marginTop: 20 }}>Add listing</button>
+            </div>
+            <div style={{ ...card, marginBottom: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h3 style={{ fontWeight: 600, fontSize: 17, letterSpacing: "-0.02em", margin: 0 }}>Auction Winners</h3>
+                <button onClick={loadWinners} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 13 }}>Refresh</button>
+              </div>
+              {winners.length === 0 ? (
+                <div style={{ fontSize: 14, color: C.gray3, textAlign: "center", padding: "24px" }}>No completed auctions yet.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.gray2 }}>
+                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Phone</th>
+                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winner Name</th>
+                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Email</th>
+                        <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winning Bid</th>
+                        <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {winners.map((w) => (
+                        <tr key={w.listing_id} style={{ borderBottom: "1px solid " + C.gray1 }}>
+                          <td style={{ padding: "12px 0" }}>
+                            <div style={{ fontWeight: 600 }}>{w.brand} {w.model}</div>
+                            <div style={{ fontSize: 12, color: C.gray3, marginTop: 2 }}>{w.storage} · <CondBadge cond={w.condition} /></div>
+                          </td>
+                          <td style={{ padding: "12px 0", fontWeight: 500 }}>{w.user_name || "Anonymous"}</td>
+                          <td style={{ padding: "12px 0", fontSize: 13, color: C.blue }}>
+                            {w.email ? (
+                              <a href={"mailto:" + w.email} style={{ color: C.blue, textDecoration: "none" }}>
+                                {w.email}
+                              </a>
+                            ) : (
+                              <span style={{ color: C.gray3 }}>N/A</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, color: C.goldText }}>{formatZAR(w.amount)}</td>
+                          <td style={{ padding: "12px 0", textAlign: "right", fontSize: 12, color: C.gray3 }}>{new Date(w.end_time).toLocaleDateString("en-ZA")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
             <div style={card}>
               <h3 style={{ fontWeight: 600, fontSize: 17, marginBottom: 20, letterSpacing: "-0.02em" }}>Manage listings ({listings.length})</h3>
