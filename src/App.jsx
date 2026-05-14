@@ -146,6 +146,9 @@ export default function App() {
   const [bidLoading, setBidLoading] = useState(false);
   const [winners, setWinners] = useState([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [comments, setComments] = useState({});
+  const [commentInput, setCommentInput] = useState("");
+  const [commentLoading, setCommentLoading] = useState(false);
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
@@ -198,6 +201,50 @@ export default function App() {
       console.error("Failed to load winners:", e);
       showToast("Could not load winners list", "error");
     }
+  }
+
+  // Load description for a listing
+  async function loadComments(listingId) {
+    try {
+      const data = await sb("comments?listing_id=eq." + listingId + "&select=*");
+      setComments(p => ({ ...p, [listingId]: data && data.length > 0 ? data[0] : null }));
+    } catch(e) { console.error("Failed to load description:", e); }
+  }
+
+  // Add/Update admin description
+  async function addComment() {
+    if (!profile || !profile.is_admin) { showToast("Only admins can add descriptions", "error"); return; }
+    if (!commentInput.trim()) { showToast("Description cannot be empty", "error"); return; }
+
+    const token = getToken();
+    setCommentLoading(true);
+    try {
+      const existing = comments[activePhone.id];
+      
+      if (existing) {
+        // Update existing description
+        await sb("comments?id=eq." + existing.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ content: commentInput }) }, token);
+      } else {
+        // Create new description
+        await sb("comments", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: activePhone.id, user_id: session.user.id, user_name: profile.name, content: commentInput }) }, token);
+      }
+      
+      await loadComments(activePhone.id);
+      setCommentInput("");
+      showToast("Description saved.");
+    } catch(e) { showToast("Failed to save description: " + e.message, "error"); }
+    setCommentLoading(false);
+  }
+
+  // Delete description
+  async function deleteComment(commentId) {
+    const token = getToken();
+    try {
+      await sb("comments?id=eq." + commentId, { method: "DELETE" }, token);
+      await loadComments(activePhone.id);
+      setCommentInput("");
+      showToast("Description deleted.", "warn");
+    } catch(e) { showToast("Failed to delete description: " + e.message, "error"); }
   }
 
   async function loadProfile(uid) {
@@ -403,6 +450,7 @@ export default function App() {
         {/* DETAIL */}
         {page === "detail" && activePhone && (
           <div>
+            {(() => { if (page === "detail") { loadComments(activePhone.id); setCommentInput(""); } return null; })()}
             <button onClick={() => setPage("home")} style={{ ...btnGhost, padding: 0, marginBottom: 32, fontSize: 14, color: C.gray3 }}>← All auctions</button>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
               <div>
@@ -524,6 +572,64 @@ export default function App() {
                     })}
                 </div>
               </div>
+            </div>
+
+            {/* DESCRIPTION SECTION (Admin Only) */}
+            <div style={{ ...card, marginTop: 24 }}>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16, letterSpacing: "-0.02em" }}>Device Description</div>
+              
+              {/* Admin edit form */}
+              {profile && profile.is_admin ? (
+                <div>
+                  {comments[activePhone.id] && (
+                    <div style={{ background: C.goldBg, border: "1px solid " + C.goldBorder, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.goldText, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Current description</div>
+                      <p style={{ fontSize: 14, color: C.black, lineHeight: 1.6, margin: 0 }}>{comments[activePhone.id].content}</p>
+                      <div style={{ fontSize: 12, color: C.gray3, marginTop: 8 }}>
+                        Last updated: {new Date(comments[activePhone.id].updated_at).toLocaleDateString("en-ZA")} {new Date(comments[activePhone.id].updated_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <label style={lbl}>Edit device description</label>
+                  <textarea
+                    placeholder="Add details about condition, features, included accessories, warranty status, etc..."
+                    value={commentInput}
+                    onChange={e => setCommentInput(e.target.value)}
+                    style={{
+                      ...inp,
+                      fontFamily: "inherit",
+                      minHeight: 120,
+                      padding: "12px 16px",
+                      resize: "vertical",
+                      fontWeight: 400
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+                    <button onClick={addComment} disabled={commentLoading} style={{ ...btnPrimary, flex: 1, opacity: commentLoading ? 0.7 : 1 }}>
+                      {commentLoading ? "Saving..." : comments[activePhone.id] ? "Update description" : "Add description"}
+                    </button>
+                    {comments[activePhone.id] && (
+                      <button onClick={() => deleteComment(comments[activePhone.id].id)} style={{ ...btnDanger }}>
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {comments[activePhone.id] ? (
+                    <div style={{ background: C.gray1, borderRadius: 12, padding: 16 }}>
+                      <p style={{ fontSize: 14, color: C.black, lineHeight: 1.6, margin: 0 }}>{comments[activePhone.id].content}</p>
+                      <div style={{ fontSize: 12, color: C.gray3, marginTop: 12 }}>
+                        Added by {comments[activePhone.id].user_name} on {new Date(comments[activePhone.id].created_at).toLocaleDateString("en-ZA")}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 14, color: C.gray3, textAlign: "center", padding: "24px 0" }}>No description added yet</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
