@@ -54,14 +54,14 @@ const endMs = (p) => new Date(p.end_time).getTime();
 
 const C = {
   black: "#1d1d1f", white: "#ffffff", gray1: "#f5f5f7", gray2: "#e8e8ed",
-  gray3: "#6e6e73", gray4: "#424245", blue: "#0071e3", green: "#1d8348",
+  gray3: "#6e6e73", gray4: "#424245", blue: "#ffbd59", green: "#1d8348",
   greenLight: "#eafaf1", red: "#c0392b", redLight: "#fdedec", amber: "#d4830a", amberLight: "#fef9e7",
   goldBg: "#fffbea", goldBorder: "#f0c040", goldText: "#8a6a00",
 };
 
 const inp = { border: "1px solid " + C.gray2, borderRadius: 12, padding: "11px 16px", fontSize: 15, width: "100%", background: C.white, color: C.black, boxSizing: "border-box", outline: "none" };
-const btnPrimary = { background: C.blue, color: C.white, border: "none", borderRadius: 980, padding: "12px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
-const btnSecondary = { background: "transparent", color: C.blue, border: "1px solid " + C.blue, borderRadius: 980, padding: "11px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
+const btnPrimary = { background: C.blue, color: C.black, border: "none", borderRadius: 980, padding: "12px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
+const btnSecondary = { background: "transparent", color: C.black, border: "1px solid " + C.blue, borderRadius: 980, padding: "11px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
 const btnGhost = { background: "transparent", color: C.gray3, border: "none", padding: "8px 14px", fontSize: 14, cursor: "pointer" };
 const btnDanger = { background: C.redLight, color: C.red, border: "1px solid " + C.red, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" };
 const card = { background: C.white, border: "1px solid " + C.gray2, borderRadius: 18, padding: 24 };
@@ -395,9 +395,9 @@ export default function App() {
             </div>
 
             <div style={{ textAlign: "center", marginBottom: 56 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: C.blue, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
-              <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on New & Pre-owned Devices.</h1>
-              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Authentic. Inspected.</p>
+              <div style={{ fontSize: 13, fontWeight: 500, color: C.black, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
+              <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on pre-owned phones.</h1>
+              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices.</p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 {[["all","All listings"],["active","Active"],["ending","Ending soon"],["watched","Watchlist (" + watchlist.length + ")"]].map(function(item) {
                   return <button key={item[0]} onClick={() => setFilter(item[0])} style={{ ...(filter === item[0] ? btnPrimary : btnSecondary), padding: "9px 20px", fontSize: 14 }}>{item[1]}</button>;
@@ -668,7 +668,7 @@ export default function App() {
               </button>
               <div style={{ textAlign: "center", marginTop: 20, fontSize: 14, color: C.gray3 }}>
                 {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-                <span onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthErr(""); }} style={{ color: C.blue, cursor: "pointer", fontWeight: 500 }}>
+                <span onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthErr(""); }} style={{ color: C.black, cursor: "pointer", fontWeight: 500 }}>
                   {authMode === "login" ? "Create one" : "Sign in"}
                 </span>
               </div>
@@ -764,9 +764,9 @@ export default function App() {
                             <div style={{ fontSize: 12, color: C.gray3, marginTop: 2 }}>{w.storage} · <CondBadge cond={w.condition} /></div>
                           </td>
                           <td style={{ padding: "12px 0", fontWeight: 500 }}>{w.user_name || "Anonymous"}</td>
-                          <td style={{ padding: "12px 0", fontSize: 13, color: C.blue }}>
+                          <td style={{ padding: "12px 0", fontSize: 13, color: C.black }}>
                             {w.email ? (
-                              <a href={"mailto:" + w.email} style={{ color: C.blue, textDecoration: "none" }}>
+                              <a href={"mailto:" + w.email} style={{ color: C.black, textDecoration: "none" }}>
                                 {w.email}
                               </a>
                             ) : (
@@ -775,7 +775,7 @@ export default function App() {
                           </td>
                           <td style={{ padding: "12px 0", fontSize: 13 }}>
                             {w.phone_number ? (
-                              <a href={"tel:" + w.phone_number} style={{ color: C.blue, textDecoration: "none", fontWeight: 500 }}>
+                              <a href={"tel:" + w.phone_number} style={{ color: C.black, textDecoration: "none", fontWeight: 500 }}>
                                 {w.phone_number}
                               </a>
                             ) : (
@@ -816,7 +816,7 @@ export default function App() {
 
       <footer style={{ borderTop: "1px solid " + C.gray2, marginTop: 80, padding: "40px 24px", textAlign: "center" }}>
         <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.02em", marginBottom: 8 }}>Supreme Gadgets</div>
-        <div style={{ fontSize: 13, color: C.gray3 }}>South Africa's Tech auction platform · Built by Memento.</div>
+        <div style={{ fontSize: 13, color: C.gray3 }}>South Africa's pre-owned Tech auction platform · All prices in ZAR</div>
         <div style={{ fontSize: 12, color: C.gray3, marginTop: 8 }}>© 2025 Supreme Gadgets. All rights reserved.</div>
       </footer>
     </div>
