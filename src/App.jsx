@@ -647,7 +647,7 @@ export default function App() {
           <div style={{ maxWidth: 420, margin: "40px auto" }}>
             <div style={{ ...card, padding: 40 }}>
               <div style={{ textAlign: "center", marginBottom: 32 }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>📱</div>
+                <img src="/auth-logo.png" alt="Supreme Gadgets" style={{ width: 64, height: 64, objectFit: "contain", marginBottom: 8 }} />
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Supreme Gadgets</h2>
                 <p style={{ fontSize: 15, color: C.gray3, margin: 0 }}>{authMode === "login" ? "Sign in to your account" : "Create your account"}</p>
               </div>
