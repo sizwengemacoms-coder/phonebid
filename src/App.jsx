@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 const SUPA_URL = "https://fxwnpebzfcfvqvnxkayn.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d25wZWJ6ZmNmdnF2bnhrYXluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MzMxMDUsImV4cCI6MjA5NDIwOTEwNX0._94i3GtL_5IPFdm8aVs1RRIhwXEiPd-cudf0Fomh3fs";
 
-// FIX: always pass the logged-in user's JWT for write operations so RLS can identify them
 function makeHeaders(token, extra) {
   return {
     "Content-Type": "application/json",
@@ -33,6 +32,37 @@ async function sbAuth(path, body) {
   return data;
 }
 
+// Refresh the access token using the stored refresh_token, returns fresh session or null
+async function refreshSession() {
+  try {
+    const raw = localStorage.getItem("pb_session");
+    if (!raw) return null;
+    const sess = JSON.parse(raw);
+    if (!sess.refresh_token) return null;
+    const data = await sbAuth("token?grant_type=refresh_token", { refresh_token: sess.refresh_token });
+    localStorage.setItem("pb_session", JSON.stringify(data));
+    return data;
+  } catch(e) {
+    console.error("Session refresh failed:", e);
+    return null;
+  }
+}
+
+// Get a valid token, auto-refreshing if expired
+async function getFreshToken(session, setSession) {
+  if (!session) return null;
+  // Check if token is expired (exp is in seconds)
+  try {
+    const payload = JSON.parse(atob(session.access_token.split(".")[1]));
+    const expiresIn = payload.exp * 1000 - Date.now();
+    if (expiresIn > 10000) return session.access_token; // still valid
+  } catch(e) {}
+  // Token expired — refresh it
+  const newSess = await refreshSession();
+  if (newSess) { setSession(newSess); return newSess.access_token; }
+  return null;
+}
+
 const SEED = [
   { brand: "Apple", model: "iPhone 15 Pro Max", storage: "256GB", condition: "Excellent", color: "Titanium", image_url: "", start_price: 8500, current_bid: 9200, end_time: new Date(Date.now() + 3600e3 * 24).toISOString() },
   { brand: "Samsung", model: "Galaxy S24 Ultra", storage: "512GB", condition: "Good", color: "Phantom Black", image_url: "", start_price: 7000, current_bid: 7650, end_time: new Date(Date.now() + 3600e3 * 48).toISOString() },
@@ -54,14 +84,14 @@ const endMs = (p) => new Date(p.end_time).getTime();
 
 const C = {
   black: "#1d1d1f", white: "#ffffff", gray1: "#f5f5f7", gray2: "#e8e8ed",
-  gray3: "#6e6e73", gray4: "#424245", blue: "#ffbd59", green: "#1d8348",
+  gray3: "#6e6e73", gray4: "#424245", blue: "#0071e3", green: "#1d8348",
   greenLight: "#eafaf1", red: "#c0392b", redLight: "#fdedec", amber: "#d4830a", amberLight: "#fef9e7",
   goldBg: "#fffbea", goldBorder: "#f0c040", goldText: "#8a6a00",
 };
 
 const inp = { border: "1px solid " + C.gray2, borderRadius: 12, padding: "11px 16px", fontSize: 15, width: "100%", background: C.white, color: C.black, boxSizing: "border-box", outline: "none" };
-const btnPrimary = { background: C.blue, color: C.black, border: "none", borderRadius: 980, padding: "12px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
-const btnSecondary = { background: "transparent", color: C.black, border: "1px solid " + C.blue, borderRadius: 980, padding: "11px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
+const btnPrimary = { background: C.blue, color: C.white, border: "none", borderRadius: 980, padding: "12px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
+const btnSecondary = { background: "transparent", color: C.blue, border: "1px solid " + C.blue, borderRadius: 980, padding: "11px 24px", fontSize: 15, fontWeight: 500, cursor: "pointer" };
 const btnGhost = { background: "transparent", color: C.gray3, border: "none", padding: "8px 14px", fontSize: 14, cursor: "pointer" };
 const btnDanger = { background: C.redLight, color: C.red, border: "1px solid " + C.red, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer" };
 const card = { background: C.white, border: "1px solid " + C.gray2, borderRadius: 18, padding: 24 };
@@ -152,13 +182,17 @@ export default function App() {
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
-  // Helper: get the current user's JWT from state or localStorage
   function getToken() {
     if (session && session.access_token) return session.access_token;
     try { const raw = localStorage.getItem("pb_session"); if (raw) return JSON.parse(raw).access_token; } catch(e) {}
     return null;
   }
 
+  async function getValidToken() {
+    return await getFreshToken(session, setSession) || getToken();
+  }
+
+  // Initial load
   useEffect(() => {
     (async () => {
       try {
@@ -172,6 +206,21 @@ export default function App() {
     })();
   }, []);
 
+  // FIX: Load comments when entering detail page — replaces the inline render side-effect
+  useEffect(() => {
+    if (page === "detail" && selectedId) {
+      loadComments(selectedId);
+      setCommentInput("");
+    }
+  }, [page, selectedId]);
+
+  // FIX: Load winners when entering admin page — replaces the inline render side-effect
+  useEffect(() => {
+    if (page === "admin") {
+      loadWinners();
+    }
+  }, [page]);
+
   async function loadListings() {
     try {
       let data = await sb("listings?order=created_at.desc&select=*");
@@ -184,7 +233,6 @@ export default function App() {
     } catch(e) { showToast("Could not load listings", "error"); }
   }
 
-  // Sort by amount desc so bids[0] is always the highest bidder (winner)
   async function loadBids(id) {
     try {
       const data = await sb("bids?listing_id=eq." + id + "&order=amount.desc&select=*");
@@ -192,18 +240,16 @@ export default function App() {
     } catch(e) {}
   }
 
-  // Load all auction winners from the auction_winners view
   async function loadWinners() {
     try {
       const data = await sb("auction_winners?order=end_time.desc&select=*");
       setWinners(data || []);
-    } catch(e) { 
+    } catch(e) {
       console.error("Failed to load winners:", e);
       showToast("Could not load winners list", "error");
     }
   }
 
-  // Load description for a listing
   async function loadComments(listingId) {
     try {
       const data = await sb("comments?listing_id=eq." + listingId + "&select=*");
@@ -211,24 +257,19 @@ export default function App() {
     } catch(e) { console.error("Failed to load description:", e); }
   }
 
-  // Add/Update admin description
   async function addComment() {
     if (!profile || !profile.is_admin) { showToast("Only admins can add descriptions", "error"); return; }
     if (!commentInput.trim()) { showToast("Description cannot be empty", "error"); return; }
 
-    const token = getToken();
+    const token = await getValidToken();
     setCommentLoading(true);
     try {
       const existing = comments[activePhone.id];
-      
       if (existing) {
-        // Update existing description
         await sb("comments?id=eq." + existing.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ content: commentInput }) }, token);
       } else {
-        // Create new description
         await sb("comments", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: activePhone.id, user_id: session.user.id, user_name: profile.name, content: commentInput }) }, token);
       }
-      
       await loadComments(activePhone.id);
       setCommentInput("");
       showToast("Description saved.");
@@ -236,9 +277,8 @@ export default function App() {
     setCommentLoading(false);
   }
 
-  // Delete description
   async function deleteComment(commentId) {
-    const token = getToken();
+    const token = await getValidToken();
     try {
       await sb("comments?id=eq." + commentId, { method: "DELETE" }, token);
       await loadComments(activePhone.id);
@@ -267,7 +307,6 @@ export default function App() {
     try {
       const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
       const isAdmin = authForm.email === "admin@phonebid.co.za";
-      // Use the new user's own token to insert their own profile (satisfies RLS insert policy)
       await sb("profiles", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin }) }, data.access_token);
       localStorage.setItem("pb_session", JSON.stringify(data));
       setSession(data); setProfile({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin });
@@ -298,7 +337,6 @@ export default function App() {
     const phone = confirm.phone, amount = confirm.amount;
     setConfirm(null); setBidLoading(true);
 
-    // Block anonymous bids — require a real profile name
     const userName = profile && profile.name;
     if (!userName) {
       showToast("Profile not loaded. Please sign out and sign back in.", "error");
@@ -306,9 +344,8 @@ export default function App() {
       return;
     }
 
-    const token = getToken();
+    const token = await getValidToken();
     try {
-      // Pass session token so RLS can verify user_id matches the logged-in user
       await sb("bids", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: phone.id, user_id: session.user.id, user_name: userName, amount }) }, token);
       await sb("listings?id=eq." + phone.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ current_bid: amount }) }, token);
       setListings(prev => prev.map(p => p.id === phone.id ? { ...p, current_bid: amount } : p));
@@ -321,12 +358,9 @@ export default function App() {
     const { brand, model, storage, condition, color, startPrice, hours, imageUrls } = adminForm;
     if (!brand || !model || !startPrice || !hours) { showToast("Fill in all required fields", "error"); return; }
     const price = parseFloat(startPrice);
-    const token = getToken();
+    const token = await getValidToken();
     try {
-      // Split imageUrls by comma and trim whitespace
       const urls = imageUrls ? imageUrls.split(",").map(url => url.trim()).filter(url => url) : [];
-      
-      // Pass admin session token so RLS allows the insert
       await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_urls: urls, start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) }, token);
       await loadListings();
       setAdminForm({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrls: "" });
@@ -335,9 +369,8 @@ export default function App() {
   }
 
   async function removeListing(id) {
-    const token = getToken();
+    const token = await getValidToken();
     try {
-      // Pass admin session token so RLS allows the delete
       await sb("listings?id=eq." + id, { method: "DELETE" }, token);
       setListings(p => p.filter(x => x.id !== id));
       showToast("Listing removed.", "warn");
@@ -363,7 +396,7 @@ export default function App() {
         <span onClick={() => setPage("home")} style={{ fontWeight: 700, fontSize: 18, cursor: "pointer", color: C.black, letterSpacing: "-0.03em", marginRight: 32 }}>Supreme Gadgets</span>
         <div style={{ display: "flex", gap: 4, flex: 1 }}>
           <button onClick={() => setPage("home")} style={{ ...btnGhost, color: page === "home" ? C.black : C.gray3, fontWeight: page === "home" ? 500 : 400 }}>Auctions</button>
-          {profile && profile.is_admin && <button onClick={() => { setPage("admin"); loadWinners(); }} style={{ ...btnGhost, color: page === "admin" ? C.black : C.gray3, fontWeight: page === "admin" ? 500 : 400 }}>Admin</button>}
+          {profile && profile.is_admin && <button onClick={() => setPage("admin")} style={{ ...btnGhost, color: page === "admin" ? C.black : C.gray3, fontWeight: page === "admin" ? 500 : 400 }}>Admin</button>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {session ? (
@@ -385,19 +418,10 @@ export default function App() {
         {/* HOME */}
         {page === "home" && (
           <div>
-            {/* HERO IMAGE BANNER */}
-            <div style={{ marginLeft: -24, marginRight: -24, marginTop: -48, marginBottom: 56 }}>
-              <img
-                src="/SUPREME_GADGETS_-_1.png"
-                alt="Supreme Gadgets — Auction Live"
-                style={{ width: "100%", display: "block", maxHeight: 500, objectFit: "cover", objectPosition: "center" }}
-              />
-            </div>
-
             <div style={{ textAlign: "center", marginBottom: 56 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: C.black, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
-              <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on New & Pre-owned Phones.</h1>
-              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Authentic. Inspected.</p>
+              <div style={{ fontSize: 13, fontWeight: 500, color: C.blue, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Live auctions</div>
+              <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on pre-owned phones.</h1>
+              <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices.</p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 {[["all","All listings"],["active","Active"],["ending","Ending soon"],["watched","Watchlist (" + watchlist.length + ")"]].map(function(item) {
                   return <button key={item[0]} onClick={() => setFilter(item[0])} style={{ ...(filter === item[0] ? btnPrimary : btnSecondary), padding: "9px 20px", fontSize: 14 }}>{item[1]}</button>;
@@ -417,7 +441,13 @@ export default function App() {
                     style={{ background: C.white, border: "1px solid " + C.gray2, borderRadius: 18, overflow: "hidden", cursor: "pointer", position: "relative" }}
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 8px 32px rgba(0,0,0,0.10)"; }}
                     onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-                    onClick={() => { setSelectedId(p.id); setPage("detail"); setBidInput(""); setSelectedImageIndex(0); loadBids(p.id); loadComments(p.id); setCommentInput(""); }}>
+                    onClick={() => {
+                      setSelectedId(p.id);
+                      setPage("detail");
+                      setBidInput("");
+                      setSelectedImageIndex(0); // FIX: reset image index on new listing
+                      loadBids(p.id);
+                    }}>
                     <div style={{ height: 180, background: C.gray1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, position: "relative" }}>
                       {p.image_urls && p.image_urls.length > 0 ? <img src={p.image_urls[0]} style={{ height: 160, objectFit: "contain" }} alt="" /> : "📱"}
                       <button onClick={e => { e.stopPropagation(); toggleWatch(p.id); }} style={{ position: "absolute", top: 12, right: 12, background: C.white, border: "1px solid " + C.gray2, borderRadius: "50%", width: 34, height: 34, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -469,8 +499,7 @@ export default function App() {
                   ) : (
                     "📱"
                   )}
-                  
-                  {/* Image navigation arrows */}
+
                   {activePhone.image_urls && activePhone.image_urls.length > 1 && (
                     <>
                       <button
@@ -485,8 +514,7 @@ export default function App() {
                       >
                         ›
                       </button>
-                      
-                      {/* Image indicators */}
+
                       <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8 }}>
                         {activePhone.image_urls.map((_, idx) => (
                           <button
@@ -582,11 +610,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* DESCRIPTION SECTION (Admin Only) */}
+            {/* DESCRIPTION SECTION */}
             <div style={{ ...card, marginTop: 24 }}>
               <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16, letterSpacing: "-0.02em" }}>Device Description</div>
-              
-              {/* Admin edit form */}
+
               {profile && profile.is_admin ? (
                 <div>
                   {comments[activePhone.id] && (
@@ -598,20 +625,13 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  
+
                   <label style={lbl}>Edit device description</label>
                   <textarea
                     placeholder="Add details about condition, features, included accessories, warranty status, etc..."
                     value={commentInput}
                     onChange={e => setCommentInput(e.target.value)}
-                    style={{
-                      ...inp,
-                      fontFamily: "inherit",
-                      minHeight: 120,
-                      padding: "12px 16px",
-                      resize: "vertical",
-                      fontWeight: 400
-                    }}
+                    style={{ ...inp, fontFamily: "inherit", minHeight: 120, padding: "12px 16px", resize: "vertical", fontWeight: 400 }}
                   />
                   <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
                     <button onClick={addComment} disabled={commentLoading} style={{ ...btnPrimary, flex: 1, opacity: commentLoading ? 0.7 : 1 }}>
@@ -647,7 +667,7 @@ export default function App() {
           <div style={{ maxWidth: 420, margin: "40px auto" }}>
             <div style={{ ...card, padding: 40 }}>
               <div style={{ textAlign: "center", marginBottom: 32 }}>
-                <img src="/auth-logo.png" alt="Supreme Gadgets" style={{ width: 64, height: 64, objectFit: "contain", marginBottom: 8 }} />
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📱</div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Supreme Gadgets</h2>
                 <p style={{ fontSize: 15, color: C.gray3, margin: 0 }}>{authMode === "login" ? "Sign in to your account" : "Create your account"}</p>
               </div>
@@ -668,7 +688,7 @@ export default function App() {
               </button>
               <div style={{ textAlign: "center", marginTop: 20, fontSize: 14, color: C.gray3 }}>
                 {authMode === "login" ? "Don't have an account? " : "Already have an account? "}
-                <span onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthErr(""); }} style={{ color: C.black, cursor: "pointer", fontWeight: 500 }}>
+                <span onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthErr(""); }} style={{ color: C.blue, cursor: "pointer", fontWeight: 500 }}>
                   {authMode === "login" ? "Create one" : "Sign in"}
                 </span>
               </div>
@@ -764,20 +784,16 @@ export default function App() {
                             <div style={{ fontSize: 12, color: C.gray3, marginTop: 2 }}>{w.storage} · <CondBadge cond={w.condition} /></div>
                           </td>
                           <td style={{ padding: "12px 0", fontWeight: 500 }}>{w.user_name || "Anonymous"}</td>
-                          <td style={{ padding: "12px 0", fontSize: 13, color: C.black }}>
+                          <td style={{ padding: "12px 0", fontSize: 13, color: C.blue }}>
                             {w.email ? (
-                              <a href={"mailto:" + w.email} style={{ color: C.black, textDecoration: "none" }}>
-                                {w.email}
-                              </a>
+                              <a href={"mailto:" + w.email} style={{ color: C.blue, textDecoration: "none" }}>{w.email}</a>
                             ) : (
                               <span style={{ color: C.gray3 }}>N/A</span>
                             )}
                           </td>
                           <td style={{ padding: "12px 0", fontSize: 13 }}>
                             {w.phone_number ? (
-                              <a href={"tel:" + w.phone_number} style={{ color: C.black, textDecoration: "none", fontWeight: 500 }}>
-                                {w.phone_number}
-                              </a>
+                              <a href={"tel:" + w.phone_number} style={{ color: C.blue, textDecoration: "none", fontWeight: 500 }}>{w.phone_number}</a>
                             ) : (
                               <span style={{ color: C.gray3 }}>N/A</span>
                             )}
