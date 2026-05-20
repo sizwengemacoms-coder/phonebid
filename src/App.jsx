@@ -418,8 +418,8 @@ export default function App() {
                     onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 8px 32px rgba(0,0,0,0.10)"; }}
                     onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
                     onClick={() => { setSelectedId(p.id); setPage("detail"); setBidInput(""); setSelectedImageIndex(0); loadBids(p.id); loadComments(p.id); setCommentInput(""); }}>
-                    <div style={{ height: 180, background: C.gray1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, position: "relative" }}>
-                      {p.image_urls && p.image_urls.length > 0 ? <img src={p.image_urls[0]} style={{ height: 160, objectFit: "contain" }} alt="" /> : "📱"}
+                    <div style={{ aspectRatio: "4/3", background: C.gray1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 72, position: "relative", overflow: "hidden" }}>
+                      {p.image_urls && p.image_urls.length > 0 ? <img src={p.image_urls[0]} style={{ width: "100%", height: "100%", objectFit: "contain", padding: 8 }} alt="" /> : "📱"}
                       <button onClick={e => { e.stopPropagation(); toggleWatch(p.id); }} style={{ position: "absolute", top: 12, right: 12, background: C.white, border: "1px solid " + C.gray2, borderRadius: "50%", width: 34, height: 34, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {watchlist.includes(p.id) ? "♥" : "♡"}
                       </button>
