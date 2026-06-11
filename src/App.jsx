@@ -33,6 +33,31 @@ async function sbAuth(path, body) {
   return data;
 }
 
+// FIX: Refresh the session using the refresh_token, persist the new session
+async function refreshSession(sess) {
+  if (!sess || !sess.refresh_token) return null;
+  try {
+    const data = await sbAuth("token?grant_type=refresh_token", { refresh_token: sess.refresh_token });
+    localStorage.setItem("pb_session", JSON.stringify(data));
+    return data;
+  } catch (e) {
+    console.warn("Session refresh failed:", e.message);
+    localStorage.removeItem("pb_session");
+    return null;
+  }
+}
+
+// FIX: Check if access_token is expired (with 60s buffer) and refresh if needed
+function isTokenExpired(sess) {
+  if (!sess || !sess.access_token) return true;
+  try {
+    const payload = JSON.parse(atob(sess.access_token.split(".")[1]));
+    return payload.exp * 1000 < Date.now() + 60000; // 60s buffer
+  } catch (e) {
+    return true;
+  }
+}
+
 const SEED = [
   { brand: "Apple", model: "iPhone 15 Pro Max", storage: "256GB", condition: "Excellent", color: "Titanium", image_url: "", start_price: 8500, current_bid: 9200, end_time: new Date(Date.now() + 3600e3 * 24).toISOString() },
   { brand: "Samsung", model: "Galaxy S24 Ultra", storage: "512GB", condition: "Good", color: "Phantom Black", image_url: "", start_price: 7000, current_bid: 7650, end_time: new Date(Date.now() + 3600e3 * 48).toISOString() },
@@ -152,66 +177,98 @@ export default function App() {
 
   const showToast = (msg, type, ms) => { setToast({ msg, type: type || "success" }); setTimeout(() => setToast({ msg: "", type: "" }), ms || 2800); };
 
-  // Helper: get the current user's JWT from state or localStorage
-  function getToken() {
-    if (session && session.access_token) return session.access_token;
-    try { const raw = localStorage.getItem("pb_session"); if (raw) return JSON.parse(raw).access_token; } catch(e) {}
+  // FIX: getToken now reads from React state (always fresh after refresh)
+  function getToken(currentSession) {
+    const sess = currentSession || session;
+    if (sess && sess.access_token) return sess.access_token;
     return null;
   }
 
+  // FIX: On app boot, load stored session and refresh it if expired before doing anything else
   useEffect(() => {
     (async () => {
       try {
-        const raw = localStorage.getItem("pb_session");
-        if (raw) { const sess = JSON.parse(raw); setSession(sess); await loadProfile(sess.user.id); }
         const wl = localStorage.getItem("pb_watchlist");
         if (wl) setWatchlist(JSON.parse(wl));
+
+        const raw = localStorage.getItem("pb_session");
+        if (raw) {
+          let sess = JSON.parse(raw);
+
+          // FIX: If token is expired (or close to it), refresh before using it
+          if (isTokenExpired(sess)) {
+            sess = await refreshSession(sess);
+          }
+
+          if (sess) {
+            setSession(sess);
+            await loadProfile(sess.user.id, sess);
+          }
+        }
+
         await loadListings();
-      } catch(e) { console.error(e); }
+      } catch (e) { console.error(e); }
       setLoading(false);
     })();
   }, []);
 
-  async function loadListings() {
+  // FIX: Proactive token refresh — check every 4 minutes, refresh if expiring within 5 minutes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const raw = localStorage.getItem("pb_session");
+      if (!raw) return;
+      const sess = JSON.parse(raw);
+      if (isTokenExpired(sess)) {
+        const newSess = await refreshSession(sess);
+        if (newSess) {
+          setSession(newSess);
+        } else {
+          // Refresh token itself expired — log user out cleanly
+          setSession(null);
+          setProfile(null);
+          showToast("Session expired. Please sign in again.", "error", 4000);
+        }
+      }
+    }, 4 * 60 * 1000); // every 4 minutes
+    return () => clearInterval(interval);
+  }, []);
+
+  async function loadListings(currentSession) {
     try {
       let data = await sb("listings?order=created_at.desc&select=*");
       if (!data || data.length === 0) {
-        const token = getToken();
+        const token = getToken(currentSession);
         await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=representation" }, body: JSON.stringify(SEED) }, token);
         data = await sb("listings?order=created_at.desc&select=*");
       }
       setListings(data || []);
-    } catch(e) { showToast("Could not load listings", "error"); }
+    } catch (e) { showToast("Could not load listings", "error"); }
   }
 
-  // Sort by amount desc so bids[0] is always the highest bidder (winner)
   async function loadBids(id) {
     try {
       const data = await sb("bids?listing_id=eq." + id + "&order=amount.desc&select=*");
       setBids(p => ({ ...p, [id]: data || [] }));
-    } catch(e) {}
+    } catch (e) {}
   }
 
-  // Load all auction winners from the auction_winners view
   async function loadWinners() {
     try {
       const data = await sb("auction_winners?order=end_time.desc&select=*");
       setWinners(data || []);
-    } catch(e) { 
+    } catch (e) {
       console.error("Failed to load winners:", e);
       showToast("Could not load winners list", "error");
     }
   }
 
-  // Load description for a listing
   async function loadComments(listingId) {
     try {
       const data = await sb("comments?listing_id=eq." + listingId + "&select=*");
       setComments(p => ({ ...p, [listingId]: data && data.length > 0 ? data[0] : null }));
-    } catch(e) { console.error("Failed to load description:", e); }
+    } catch (e) { console.error("Failed to load description:", e); }
   }
 
-  // Add/Update admin description
   async function addComment() {
     if (!profile || !profile.is_admin) { showToast("Only admins can add descriptions", "error"); return; }
     if (!commentInput.trim()) { showToast("Description cannot be empty", "error"); return; }
@@ -220,23 +277,18 @@ export default function App() {
     setCommentLoading(true);
     try {
       const existing = comments[activePhone.id];
-      
       if (existing) {
-        // Update existing description
         await sb("comments?id=eq." + existing.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ content: commentInput }) }, token);
       } else {
-        // Create new description
         await sb("comments", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: activePhone.id, user_id: session.user.id, user_name: profile.name, content: commentInput }) }, token);
       }
-      
       await loadComments(activePhone.id);
       setCommentInput("");
       showToast("Description saved.");
-    } catch(e) { showToast("Failed to save description: " + e.message, "error"); }
+    } catch (e) { showToast("Failed to save description: " + e.message, "error"); }
     setCommentLoading(false);
   }
 
-  // Delete description
   async function deleteComment(commentId) {
     const token = getToken();
     try {
@@ -244,11 +296,11 @@ export default function App() {
       await loadComments(activePhone.id);
       setCommentInput("");
       showToast("Description deleted.", "warn");
-    } catch(e) { showToast("Failed to delete description: " + e.message, "error"); }
+    } catch (e) { showToast("Failed to delete description: " + e.message, "error"); }
   }
 
-  async function loadProfile(uid) {
-    try { const d = await sb("profiles?id=eq." + uid + "&select=*"); if (d && d[0]) setProfile(d[0]); } catch(e) {}
+  async function loadProfile(uid, currentSession) {
+    try { const d = await sb("profiles?id=eq." + uid + "&select=*", {}, getToken(currentSession)); if (d && d[0]) setProfile(d[0]); } catch (e) {}
   }
 
   async function login() {
@@ -256,9 +308,9 @@ export default function App() {
     try {
       const data = await sbAuth("token?grant_type=password", { email: authForm.email, password: authForm.password });
       localStorage.setItem("pb_session", JSON.stringify(data));
-      setSession(data); await loadProfile(data.user.id);
+      setSession(data); await loadProfile(data.user.id, data);
       setAuthErr(""); setPage("home"); showToast("Welcome back.");
-    } catch(e) { setAuthErr(e.message); }
+    } catch (e) { setAuthErr(e.message); }
   }
 
   async function register() {
@@ -267,12 +319,11 @@ export default function App() {
     try {
       const data = await sbAuth("signup", { email: authForm.email, password: authForm.password });
       const isAdmin = authForm.email === "admin@phonebid.co.za";
-      // Use the new user's own token to insert their own profile (satisfies RLS insert policy)
       await sb("profiles", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin }) }, data.access_token);
       localStorage.setItem("pb_session", JSON.stringify(data));
       setSession(data); setProfile({ id: data.user.id, name: authForm.name, username: authForm.username, phone_number: authForm.phone || null, is_admin: isAdmin });
       setAuthErr(""); setPage("home"); showToast("Welcome, " + authForm.name.split(" ")[0] + ".");
-    } catch(e) { setAuthErr(e.message); }
+    } catch (e) { setAuthErr(e.message); }
   }
 
   function logout() { localStorage.removeItem("pb_session"); setSession(null); setProfile(null); setPage("home"); }
@@ -298,7 +349,6 @@ export default function App() {
     const phone = confirm.phone, amount = confirm.amount;
     setConfirm(null); setBidLoading(true);
 
-    // Block anonymous bids — require a real profile name
     const userName = profile && profile.name;
     if (!userName) {
       showToast("Profile not loaded. Please sign out and sign back in.", "error");
@@ -308,12 +358,11 @@ export default function App() {
 
     const token = getToken();
     try {
-      // Pass session token so RLS can verify user_id matches the logged-in user
       await sb("bids", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ listing_id: phone.id, user_id: session.user.id, user_name: userName, amount }) }, token);
       await sb("listings?id=eq." + phone.id, { method: "PATCH", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ current_bid: amount }) }, token);
       setListings(prev => prev.map(p => p.id === phone.id ? { ...p, current_bid: amount } : p));
       await loadBids(phone.id); setBidInput(""); showToast("Bid of " + formatZAR(amount) + " placed.");
-    } catch(e) { showToast("Bid failed: " + e.message, "error"); }
+    } catch (e) { showToast("Bid failed: " + e.message, "error"); }
     setBidLoading(false);
   }
 
@@ -323,25 +372,21 @@ export default function App() {
     const price = parseFloat(startPrice);
     const token = getToken();
     try {
-      // Split imageUrls by comma and trim whitespace
       const urls = imageUrls ? imageUrls.split(",").map(url => url.trim()).filter(url => url) : [];
-      
-      // Pass admin session token so RLS allows the insert
       await sb("listings", { method: "POST", extraHeaders: { "Prefer": "return=minimal" }, body: JSON.stringify({ brand, model, storage: storage || "N/A", condition: condition || "Good", color: color || "N/A", image_urls: urls, start_price: price, current_bid: price, end_time: new Date(Date.now() + parseFloat(hours) * 3600e3).toISOString() }) }, token);
       await loadListings();
       setAdminForm({ brand: "", model: "", storage: "", condition: "Good", color: "", startPrice: "", hours: "", imageUrls: "" });
       showToast("Listing added.");
-    } catch(e) { showToast("Failed: " + e.message, "error"); }
+    } catch (e) { showToast("Failed: " + e.message, "error"); }
   }
 
   async function removeListing(id) {
     const token = getToken();
     try {
-      // Pass admin session token so RLS allows the delete
       await sb("listings?id=eq." + id, { method: "DELETE" }, token);
       setListings(p => p.filter(x => x.id !== id));
       showToast("Listing removed.", "warn");
-    } catch(e) { showToast("Failed: " + e.message, "error"); }
+    } catch (e) { showToast("Failed: " + e.message, "error"); }
   }
 
   const filtered = listings.filter(p => {
@@ -385,7 +430,6 @@ export default function App() {
         {/* HOME */}
         {page === "home" && (
           <div>
-            {/* HERO IMAGE BANNER */}
             <div style={{ marginLeft: -24, marginRight: -24, marginTop: -48, marginBottom: 56 }}>
               <img
                 src="/SUPREME_GADGETS_-_1.png"
@@ -399,7 +443,7 @@ export default function App() {
               <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.04em", color: C.black, margin: "0 0 16px", lineHeight: 1.05 }}>Bid on pre-owned phones.</h1>
               <p style={{ fontSize: 19, color: C.gray3, margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.5, fontWeight: 400 }}>Real devices. Real prices.</p>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-                {[["all","All listings"],["active","Active"],["ending","Ending soon"],["watched","Watchlist (" + watchlist.length + ")"]].map(function(item) {
+                {[["all", "All listings"], ["active", "Active"], ["ending", "Ending soon"], ["watched", "Watchlist (" + watchlist.length + ")"]].map(function(item) {
                   return <button key={item[0]} onClick={() => setFilter(item[0])} style={{ ...(filter === item[0] ? btnPrimary : btnSecondary), padding: "9px 20px", fontSize: 14 }}>{item[1]}</button>;
                 })}
               </div>
@@ -462,59 +506,39 @@ export default function App() {
             <button onClick={() => setPage("home")} style={{ ...btnGhost, padding: 0, marginBottom: 32, fontSize: 14, color: C.gray3 }}>← All auctions</button>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
               <div>
-                {/* Large image gallery */}
                 <div style={{ background: C.gray1, borderRadius: 18, height: 500, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 120, marginBottom: 20, position: "relative", overflow: "hidden" }}>
                   {activePhone.image_urls && activePhone.image_urls.length > 0 ? (
                     <img src={activePhone.image_urls[selectedImageIndex]} style={{ height: "100%", width: "100%", objectFit: "contain" }} alt={`${activePhone.brand} ${activePhone.model} image ${selectedImageIndex + 1}`} />
                   ) : (
                     "📱"
                   )}
-                  
-                  {/* Image navigation arrows */}
                   {activePhone.image_urls && activePhone.image_urls.length > 1 && (
                     <>
                       <button
                         onClick={() => setSelectedImageIndex((i) => (i - 1 + activePhone.image_urls.length) % activePhone.image_urls.length)}
                         style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: C.white, border: "none", width: 44, height: 44, borderRadius: "50%", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >
-                        ‹
-                      </button>
+                      >‹</button>
                       <button
                         onClick={() => setSelectedImageIndex((i) => (i + 1) % activePhone.image_urls.length)}
                         style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: C.white, border: "none", width: 44, height: 44, borderRadius: "50%", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >
-                        ›
-                      </button>
-                      
-                      {/* Image indicators */}
+                      >›</button>
                       <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8 }}>
                         {activePhone.image_urls.map((_, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => setSelectedImageIndex(idx)}
-                            style={{ width: idx === selectedImageIndex ? 24 : 8, height: 8, borderRadius: 4, background: idx === selectedImageIndex ? C.white : "rgba(255,255,255,0.6)", border: "none", cursor: "pointer", transition: "all 0.2s" }}
-                          />
+                          <button key={idx} onClick={() => setSelectedImageIndex(idx)} style={{ width: idx === selectedImageIndex ? 24 : 8, height: 8, borderRadius: 4, background: idx === selectedImageIndex ? C.white : "rgba(255,255,255,0.6)", border: "none", cursor: "pointer", transition: "all 0.2s" }} />
                         ))}
                       </div>
                     </>
                   )}
                 </div>
-
-                {/* Thumbnail strip */}
                 {activePhone.image_urls && activePhone.image_urls.length > 1 && (
                   <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto", paddingBottom: 8 }}>
                     {activePhone.image_urls.map((url, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedImageIndex(idx)}
-                        style={{ minWidth: 80, height: 80, borderRadius: 12, border: selectedImageIndex === idx ? "2px solid " + C.blue : "1px solid " + C.gray2, overflow: "hidden", cursor: "pointer", background: "transparent", padding: 0 }}
-                      >
+                      <button key={idx} onClick={() => setSelectedImageIndex(idx)} style={{ minWidth: 80, height: 80, borderRadius: 12, border: selectedImageIndex === idx ? "2px solid " + C.blue : "1px solid " + C.gray2, overflow: "hidden", cursor: "pointer", background: "transparent", padding: 0 }}>
                         <img src={url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt={`Thumbnail ${idx + 1}`} />
                       </button>
                     ))}
                   </div>
                 )}
-
                 <div style={card}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
                     <div>
@@ -540,7 +564,6 @@ export default function App() {
                     <Countdown endTime={activePhone.end_time} />
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 40, letterSpacing: "-0.04em", color: endMs(activePhone) <= Date.now() ? C.goldText : C.black, marginBottom: 28 }}>{formatZAR(activePhone.current_bid)}</div>
-
                   {endMs(activePhone) <= Date.now() ? (
                     <WinnerBanner bids={activeBids} />
                   ) : (
@@ -556,7 +579,6 @@ export default function App() {
                     )
                   )}
                 </div>
-
                 <div style={card}>
                   <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16, letterSpacing: "-0.02em" }}>Bid history ({activeBids.length})</div>
                   {activeBids.length === 0 ? <div style={{ fontSize: 14, color: C.gray3 }}>No bids yet — be the first.</div>
@@ -582,11 +604,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* DESCRIPTION SECTION (Admin Only) */}
             <div style={{ ...card, marginTop: 24 }}>
               <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16, letterSpacing: "-0.02em" }}>Device Description</div>
-              
-              {/* Admin edit form */}
               {profile && profile.is_admin ? (
                 <div>
                   {comments[activePhone.id] && (
@@ -598,29 +617,14 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  
                   <label style={lbl}>Edit device description</label>
-                  <textarea
-                    placeholder="Add details about condition, features, included accessories, warranty status, etc..."
-                    value={commentInput}
-                    onChange={e => setCommentInput(e.target.value)}
-                    style={{
-                      ...inp,
-                      fontFamily: "inherit",
-                      minHeight: 120,
-                      padding: "12px 16px",
-                      resize: "vertical",
-                      fontWeight: 400
-                    }}
-                  />
+                  <textarea placeholder="Add details about condition, features, included accessories, warranty status, etc..." value={commentInput} onChange={e => setCommentInput(e.target.value)} style={{ ...inp, fontFamily: "inherit", minHeight: 120, padding: "12px 16px", resize: "vertical", fontWeight: 400 }} />
                   <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
                     <button onClick={addComment} disabled={commentLoading} style={{ ...btnPrimary, flex: 1, opacity: commentLoading ? 0.7 : 1 }}>
                       {commentLoading ? "Saving..." : comments[activePhone.id] ? "Update description" : "Add description"}
                     </button>
                     {comments[activePhone.id] && (
-                      <button onClick={() => deleteComment(comments[activePhone.id].id)} style={{ ...btnDanger }}>
-                        Delete
-                      </button>
+                      <button onClick={() => deleteComment(comments[activePhone.id].id)} style={{ ...btnDanger }}>Delete</button>
                     )}
                   </div>
                 </div>
@@ -719,7 +723,7 @@ export default function App() {
             <div style={{ ...card, marginBottom: 24 }}>
               <h3 style={{ fontWeight: 600, fontSize: 17, marginBottom: 20, letterSpacing: "-0.02em" }}>Add new listing</h3>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
-                {[["brand","Brand *"],["model","Model *"],["storage","Storage"],["color","Colour"],["startPrice","Starting price (R) *"],["hours","Duration (hours) *"],["imageUrls","Image URLs (comma-separated)"]].map(function(item) {
+                {[["brand", "Brand *"], ["model", "Model *"], ["storage", "Storage"], ["color", "Colour"], ["startPrice", "Starting price (R) *"], ["hours", "Duration (hours) *"], ["imageUrls", "Image URLs (comma-separated)"]].map(function(item) {
                   return (
                     <div key={item[0]}>
                       <label style={lbl}>{item[1]}</label>
@@ -730,7 +734,7 @@ export default function App() {
                 <div>
                   <label style={lbl}>Condition</label>
                   <select value={adminForm.condition} onChange={e => setAdminForm(f => ({ ...f, condition: e.target.value }))} style={inp}>
-                    {["Like New","Excellent","Good","Fair"].map(c => <option key={c}>{c}</option>)}
+                    {["Like New", "Excellent", "Good", "Fair"].map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
@@ -748,12 +752,9 @@ export default function App() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                     <thead>
                       <tr style={{ borderBottom: "2px solid " + C.gray2 }}>
-                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Phone</th>
-                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winner Name</th>
-                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Email</th>
-                        <th style={{ textAlign: "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Phone</th>
-                        <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Winning Bid</th>
-                        <th style={{ textAlign: "right", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>Date</th>
+                        {["Phone", "Winner Name", "Email", "Phone", "Winning Bid", "Date"].map(h => (
+                          <th key={h} style={{ textAlign: h === "Winning Bid" || h === "Date" ? "right" : "left", padding: "12px 0", fontWeight: 600, color: C.gray3, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 11 }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -764,23 +765,11 @@ export default function App() {
                             <div style={{ fontSize: 12, color: C.gray3, marginTop: 2 }}>{w.storage} · <CondBadge cond={w.condition} /></div>
                           </td>
                           <td style={{ padding: "12px 0", fontWeight: 500 }}>{w.user_name || "Anonymous"}</td>
-                          <td style={{ padding: "12px 0", fontSize: 13, color: C.black }}>
-                            {w.email ? (
-                              <a href={"mailto:" + w.email} style={{ color: C.black, textDecoration: "none" }}>
-                                {w.email}
-                              </a>
-                            ) : (
-                              <span style={{ color: C.gray3 }}>N/A</span>
-                            )}
+                          <td style={{ padding: "12px 0", fontSize: 13 }}>
+                            {w.email ? <a href={"mailto:" + w.email} style={{ color: C.black, textDecoration: "none" }}>{w.email}</a> : <span style={{ color: C.gray3 }}>N/A</span>}
                           </td>
                           <td style={{ padding: "12px 0", fontSize: 13 }}>
-                            {w.phone_number ? (
-                              <a href={"tel:" + w.phone_number} style={{ color: C.black, textDecoration: "none", fontWeight: 500 }}>
-                                {w.phone_number}
-                              </a>
-                            ) : (
-                              <span style={{ color: C.gray3 }}>N/A</span>
-                            )}
+                            {w.phone_number ? <a href={"tel:" + w.phone_number} style={{ color: C.black, textDecoration: "none", fontWeight: 500 }}>{w.phone_number}</a> : <span style={{ color: C.gray3 }}>N/A</span>}
                           </td>
                           <td style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, color: C.goldText }}>{formatZAR(w.amount)}</td>
                           <td style={{ padding: "12px 0", textAlign: "right", fontSize: 12, color: C.gray3 }}>{new Date(w.end_time).toLocaleDateString("en-ZA")}</td>
